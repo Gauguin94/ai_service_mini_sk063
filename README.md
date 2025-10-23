@@ -198,12 +198,9 @@ sys = f"""Current year is {current_year}.
 - Current: '~하고 있다', '~이다'
 - Future: '~할 예정이다', '~할 것으로 예상된다'
 
-Example: '2023년 출시했다' (NOT '출시한다')
+Example: '2023년 출시했다' (NOT '출시한다') 
 """
-```
 
-Example: '2023년 출시했다' (NOT '출시한다')
-"""
 ```
 ## Contributors
 
