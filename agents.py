@@ -813,12 +813,20 @@ def extract_revenue_from_text(text: str, ticker: str, openai_client) -> dict:
         return {}
 
 def extract_key_developments(text: str, title: str, openai_client) -> list[str]:
-    """주요 사업 개발사항 추출 (상세 버전)"""
+    """주요 사업 개발사항 추출 (상세 버전 + 시제 개선)"""
     if not text:
         return []
     
+    from datetime import datetime
+    current_year = datetime.now().year
+    
     sys = (
-        "Extract 5-8 key business developments with SPECIFIC DETAILS. "
+        f"Extract 5-8 key business developments with SPECIFIC DETAILS. Current year is {current_year}.\n\n"
+        "⚠️ CRITICAL - USE NATURAL KOREAN TENSE:\n"
+        "- Past events (2023 or earlier): '~했다', '~됐다', '~을 출시했다'\n"
+        "- Recent events (2024): '~했다', '~하고 있다', '~중이다'\n"
+        "- Ongoing events (2024-2025): '~하고 있다', '~중이다', '~계획이다'\n"
+        "- Future events (2026+): '~할 예정이다', '~할 계획이다'\n\n"
         "Focus on:\n"
         "1. New products/models (names, specs, launch dates)\n"
         "2. Strategic initiatives (partnerships, investments, expansions)\n"
@@ -829,9 +837,10 @@ def extract_key_developments(text: str, title: str, openai_client) -> list[str]:
         "7. Executive/organizational changes\n"
         "8. Regulatory/policy impacts\n\n"
         "Output JSON: {'developments': [str]}. "
-        "Each should be a DETAILED sentence in Korean with specific names, numbers, and dates when available."
+        "Each should be a DETAILED sentence in NATURAL KOREAN with proper tense, specific names, numbers, and dates.\n"
+        "Example: '2023년에 신모델을 출시했다' (NOT '출시한다'), '2024년 현재 생산을 확대하고 있다' (NOT '확대한다')"
     )
-    user = json.dumps({"title": title, "content": text[:12000]}, ensure_ascii=False)
+    user = json.dumps({"title": title, "content": text[:12000], "current_year": current_year}, ensure_ascii=False)
     
     try:
         resp = openai_client.chat.completions.create(
@@ -846,29 +855,33 @@ def extract_key_developments(text: str, title: str, openai_client) -> list[str]:
 
 
 def extract_product_portfolio(text: str, title: str, ticker: str, openai_client) -> dict:
-    """제품 포트폴리오 및 신제품 정보 추출 (자동차 산업 특화)"""
+    """제품 포트폴리오 및 신제품 정보 추출 (자동차 산업 특화 + 시제 개선)"""
     if not text:
         return {}
     
+    from datetime import datetime
+    current_year = datetime.now().year
+    
     sys = (
-        f"Extract {ticker}'s product portfolio and new model information.\n\n"
-        "CRITICAL - USE CORRECT TENSE:\n"
-        "- Past events (2023 or earlier): past tense (e.g., 'launched in 2023')\n"
-        "- Current events (2024-2025): present tense (e.g., 'is launching', 'offers')\n"
-        "- Future events (2026+): future tense (e.g., 'will launch')\n"
-        "- Promotions: ONLY include if CURRENTLY ACTIVE in 2024-2025. Exclude expired promotions.\n\n"
+        f"Extract {ticker}'s product portfolio and new model information. Current year is {current_year}.\n\n"
+        "⚠️ CRITICAL - USE NATURAL KOREAN TENSE:\n"
+        "Guidelines for natural Korean expressions:\n"
+        "- Past (2023 or earlier): '~을 출시했다', '~을 발표했다', '~했다'\n"
+        "- Recent past (early 2024): '~을 출시했다', '~를 공개했다'\n"
+        "- Current (2024-2025): '~을 판매하고 있다', '~을 제공한다', '~이 인기다'\n"
+        "- Near future (late 2025): '~을 출시할 예정이다', '~할 계획이다'\n"
+        "- Future (2026+): '~을 출시할 예정이다', '~을 계획하고 있다'\n\n"
+        "⚠️ For promotions/pricing:\n"
+        "- ONLY include if article explicitly states it's CURRENTLY ACTIVE (2024-2025)\n"
+        "- Exclude if: 'until 2023', 'ended in 2023', no date mentioned, or vague statements\n"
+        "- Must have concrete benefit: discount amount, cashback, free items\n"
+        "- Use present tense: '~을 제공하고 있다', '~할인을 받을 수 있다'\n\n"
         "Focus on:\n"
-        "1. Current popular models (names, segments, features)\n"
-        "2. Upcoming new models (names, launch dates, specs)\n"
-        "3. EV/Hybrid models (range, charging, battery)\n"
-        "4. Technology features (autonomous, connectivity, software)\n"
-        "5. Promotions/pricing updates (ONLY if currently active with specific benefits)\n\n"
-        "CRITICAL for Promotions:\n"
-        "- ONLY include if:\n"
-        "  * Has specific dates showing it's active in 2024-2025\n"
-        "  * Has concrete benefits (discount amount, free item, etc.)\n"
-        "  * NOT vague statements like '0% financing available'\n"
-        "- If no clearly active promotions found, return empty list\n\n"
+        "1. Current popular models (names, segments, features) - use present tense\n"
+        "2. Upcoming new models (names, launch dates, specs) - use appropriate future tense\n"
+        "3. EV/Hybrid models (range, charging, battery) - use appropriate tense based on status\n"
+        "4. Technology features (autonomous, connectivity, software) - use appropriate tense\n"
+        "5. Promotions/pricing updates - ONLY if currently active with specific benefits\n\n"
         "Output JSON:\n"
         "{\n"
         "  'current_models': [{'name': str, 'segment': str, 'details': str}],\n"
@@ -877,9 +890,13 @@ def extract_product_portfolio(text: str, title: str, ticker: str, openai_client)
         "  'technology': [str],\n"
         "  'promotions': [str]\n"
         "}\n\n"
-        "Use Korean. Include specific names and numbers. Be conservative - when in doubt, exclude questionable information."
+        "Use NATURAL KOREAN with proper tense. Include specific names and numbers.\n"
+        "Examples of good tense usage:\n"
+        "- '2024년 현재 인기 모델로 자리잡고 있다' (current)\n"
+        "- '2025년 하반기 출시 예정이다' (near future)\n"
+        "- '2023년 출시된 이후 좋은 반응을 얻고 있다' (past+current)"
     )
-    user = json.dumps({"title": title, "content": text[:12000]}, ensure_ascii=False)
+    user = json.dumps({"title": title, "content": text[:12000], "current_year": current_year}, ensure_ascii=False)
     
     try:
         resp = openai_client.chat.completions.create(

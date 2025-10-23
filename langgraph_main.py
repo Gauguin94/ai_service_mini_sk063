@@ -1,6 +1,10 @@
 """
 Stock Analysis Agent System - LangGraph Implementation
 주식 분석 자동화 시스템 - LangGraph 기반 파이프라인
+
+주요 변경사항:
+1. 게이트 실패 시 루프 제거 - 에이전트별 평가자에 의한 루프만 유지
+2. 시제 문제 해결을 위한 프롬프팅 개선
 """
 
 from dotenv import load_dotenv, find_dotenv
@@ -54,23 +58,21 @@ class AgentState(TypedDict):
     artifacts: dict
     tables: dict
     
-    # Evaluations
+    # Evaluations (에이전트별 평가만 유지)
     evals: list[dict]
     filing_retries: int
     filing_passed: bool
     date_filter_passed: bool
     content_valid: bool
-    gate_retries: int  # NEW: Gate 재시도 카운터
     
     # Final Output
     report_md: str
     tl_dr: str
     gate_feedback: dict
-    gate_passed: bool
+    gate_passed: bool  # 참고용으로만 사용 (루프 없음)
     docx_path: str
     
     # System
-    # openai_client: OpenAI  # ❌ 제거! (직렬화 불가)
     log: list[str]
 
 
@@ -135,7 +137,11 @@ def planning_node(state: AgentState) -> AgentState:
 
 
 def filing_node(state: AgentState) -> AgentState:
-    """Step 4: Filing & Business Agent with Retry"""
+    """Step 4: Filing & Business Agent with Retry
+    
+    ⚠️ 중요: 이 노드는 내부적으로 retry 로직을 가지고 있음
+    에이전트별 평가자가 실패 시 자동으로 재시도
+    """
     print(f"📋 [Run] {AGENT_NAMES['FILING']}")
     
     # 초기화
@@ -219,12 +225,14 @@ def report_node(state: AgentState) -> AgentState:
 
 
 def gate_node(state: AgentState) -> AgentState:
-    """Step 7: 품질 검증"""
-    print("🔒 [Gate] 최종 품질 점검")
+    """Step 7: 품질 검증 (참고용, 루프 없음)
     
-    # 재시도 카운터 초기화
-    if "gate_retries" not in state:
-        state["gate_retries"] = 0
+    ⚠️ 중요 변경사항:
+    - 게이트 실패 시 루프를 돌지 않음
+    - 품질 피드백만 제공하고 무조건 진행
+    - 에이전트별 평가자만 재시도 수행
+    """
+    print("🔒 [Gate] 최종 품질 점검")
     
     # OpenAI 클라이언트 임시 생성
     state["openai_client"] = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -237,13 +245,13 @@ def gate_node(state: AgentState) -> AgentState:
     del state["openai_client"]
     
     if not passed:
-        state["gate_retries"] += 1
-        print(f"⚠️  [Gate] Failed (attempt {state['gate_retries']}/3)")
+        print(f"⚠️  [Gate] Quality check failed, but proceeding to export")
         print(f"    Issues: {', '.join(feedback.get('tips', []))}")
+        print(f"    Note: 에이전트별 평가는 이미 완료되었으므로 진행합니다.")
     else:
         print(f"✅ [Gate] Passed")
     
-    state["log"].append(f"[Gate] passed={passed} retries={state['gate_retries']}")
+    state["log"].append(f"[Gate] passed={passed} (no retry)")
     
     return state
 
@@ -261,25 +269,8 @@ def export_node(state: AgentState) -> AgentState:
     return state
 
 
-def should_retry_gate(state: AgentState) -> str:
-    """Gate 실패 시 재시도 여부 결정"""
-    if state.get("gate_passed"):
-        return "export"  # 성공 → 문서 저장
-    
-    retries = state.get("gate_retries", 0)
-    max_retries = 3
-    
-    if retries >= max_retries:
-        print(f"    ⚠️  Max gate retries ({max_retries}) reached, proceeding to export anyway")
-        return "export"  # 최대 재시도 도달 → 강제 진행
-    
-    # 재시도 가능 → Filing부터 다시
-    print(f"    🔄 Retrying from Filing (attempt {retries + 1}/{max_retries})...")
-    return "retry_filing"
-
-
 # ============================================================================
-# CONDITIONAL EDGES
+# ROUTING FUNCTIONS
 # ============================================================================
 
 def route_after_filing(state: AgentState) -> str:
@@ -314,7 +305,13 @@ def route_after_fundamental(state: AgentState) -> str:
 # ============================================================================
 
 def create_stock_analysis_graph():
-    """주식 분석 LangGraph 생성"""
+    """주식 분석 LangGraph 생성
+    
+    중요 변경사항:
+    - Gate 실패 시 루프 제거
+    - Gate → Export로 직접 연결
+    - 에이전트별 평가자만 재시도 수행
+    """
     
     # StateGraph 생성
     workflow = StateGraph(AgentState)
@@ -359,16 +356,8 @@ def create_stock_analysis_graph():
     workflow.add_edge("technical", "report")
     workflow.add_edge("report", "gate")
     
-    # Gate에서 조건부 분기: 성공 → export, 실패 → filing 재시도
-    workflow.add_conditional_edges(
-        "gate",
-        should_retry_gate,
-        {
-            "export": "export",
-            "retry_filing": "filing"  # 루프백!
-        }
-    )
-    
+    # ⚠️ 중요: Gate → Export 직접 연결 (루프 제거)
+    workflow.add_edge("gate", "export")
     workflow.add_edge("export", END)
     
     # 메모리 체크포인터 추가
@@ -412,13 +401,11 @@ def run_analysis(query: str, context: dict | None = None) -> dict:
         "filing_passed": False,
         "date_filter_passed": False,
         "content_valid": False,
-        "gate_retries": 0,
         "report_md": "",
         "tl_dr": "",
         "gate_feedback": {},
         "gate_passed": False,
         "docx_path": "",
-        # openai_client 제거 - 각 노드에서 필요시 생성
         "log": []
     }
     
@@ -458,6 +445,7 @@ def chat():
         /help, /?: 도움말 표시
     """
     print("💬 Stock Agent Chat (LangGraph) — '/exit'로 종료, '/help'로 도움말")
+    print("⚠️  Note: Gate 실패 시 루프는 제거되었습니다. 에이전트별 평가만 재시도합니다.")
     
     session_ctx = {
         "forced_perspective": None,

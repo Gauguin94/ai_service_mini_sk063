@@ -31,7 +31,7 @@ def _generate_recommendation(
     openai_client
 ) -> str:
     """
-    투자 추천 생성
+    투자 추천 생성 (시제 개선)
     
     Args:
         perspective: 투자 관점 (value/tech)
@@ -43,17 +43,34 @@ def _generate_recommendation(
     Returns:
         str: 투자 추천 텍스트 (Markdown)
     """
+    from datetime import datetime
+    current_year = datetime.now().year
+    current_month = datetime.now().strftime("%Y년 %m월")
+    
     sys = f"""Based on {perspective} perspective, generate investment recommendation (Buy/Hold/Sell).
+Current date: {current_month}
+
+⚠️ CRITICAL - USE NATURAL KOREAN:
+- Use appropriate tense based on the timing of events
+- Past events: '~했다', '~을 기록했다'
+- Current situation: '~하고 있다', '~이다', '~으로 평가된다'
+- Future outlook: '~할 것으로 예상된다', '~할 전망이다'
+- Write in natural, fluent Korean that sounds professional and native
 
 Structure:
-1. **Position**: Bold statement (e.g., **Buy**, **Hold**, **Sell**)
-2. **Key Reasons**: 3-5 bullet points combining:
-   - Our analysis: Summarize key metrics from sections and tables
-   - Source insights: Reference analyst views and market consensus
-3. **Target Price**: If available from sources
-4. **Time Horizon**: Short/Medium/Long term view
+1. **Position**: Bold statement in Korean (e.g., **매수 추천**, **보유 권장**, **매도 고려**)
+2. **Key Reasons**: 3-5 bullet points in natural Korean combining:
+   - Current analysis: Summarize key metrics from sections and tables with proper tense
+   - Market consensus: Reference analyst views naturally
+   - Be specific with numbers and dates
+3. **Target Price**: If available from sources (in Korean: 목표가)
+4. **Time Horizon**: Short/Medium/Long term view in natural Korean
 
-Use Korean. Be concise (150-250 words). Focus on actionable insights."""
+Use 150-250 words. Focus on actionable insights with natural, professional Korean.
+Example of good Korean:
+- '2024년 3분기 실적이 예상을 상회하며 시장의 긍정적 평가를 받고 있다'
+- '향후 12개월간 10-15% 상승 여력이 있을 것으로 판단된다'
+- NOT: '실적 상회한다', '상승 여력 있다' (unnatural)"""
 
     user = json.dumps({
         "sections_summary": {
@@ -66,7 +83,8 @@ Use Korean. Be concise (150-250 words). Focus on actionable insights."""
             {"domain": s.get("domain"), "title": s.get("title")} 
             for s in sources[:5]
         ],
-        "perspective": perspective
+        "perspective": perspective,
+        "current_date": current_month
     }, ensure_ascii=False)
     
     try:
